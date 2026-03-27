@@ -376,19 +376,33 @@ export class GeminiAgent {
     // Enforce RPM rate limit for free tier (skipped if rate limiting disabled)
     await enforceRateLimitForModel(model, rateLimitingEnabled);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.3,  // Lower temperature for structured extraction
-          maxOutputTokens: 4096,
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    });
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: 0.3,  // Lower temperature for structured extraction
+            maxOutputTokens: 4096,
+          },
+        }),
+      });
+    } catch (error: unknown) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        logger.error('GEMINI', 'Request timed out after 60s', { model, url });
+        throw new Error('Gemini API request timed out after 60s');
+      }
+      throw error;
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const error = await response.text();

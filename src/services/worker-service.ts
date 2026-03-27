@@ -422,12 +422,18 @@ export class WorkerService {
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
 
       // Auto-backfill Chroma for all projects if out of sync with SQLite (fire-and-forget)
-      if (this.chromaMcpManager) {
+      // Controlled by CLAUDE_MEM_CHROMA_BACKFILL setting (default: false)
+      // Backfill loads entire HNSW index into memory (~9-15GB for large DBs)
+      // Only enable when Chroma data is known to be out of sync with SQLite
+      const backfillEnabled = settings.CLAUDE_MEM_CHROMA_BACKFILL === 'true';
+      if (this.chromaMcpManager && backfillEnabled) {
         ChromaSync.backfillAllProjects().then(() => {
           logger.info('CHROMA_SYNC', 'Backfill check complete for all projects');
         }).catch(error => {
           logger.error('CHROMA_SYNC', 'Backfill failed (non-blocking)', {}, error as Error);
         });
+      } else if (this.chromaMcpManager) {
+        logger.info('CHROMA_SYNC', 'Backfill skipped (CLAUDE_MEM_CHROMA_BACKFILL not enabled)');
       }
 
       // Connect to MCP server

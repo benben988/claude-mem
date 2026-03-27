@@ -23,7 +23,16 @@ async function httpRequestToWorker(
   endpointPath: string,
   method: string = 'GET'
 ): Promise<{ ok: boolean; statusCode: number; body: string }> {
-  const response = await fetch(`http://127.0.0.1:${port}${endpointPath}`, { method });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for health checks
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${port}${endpointPath}`, { method, signal: controller.signal });
+  } catch (error: unknown) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+  clearTimeout(timeoutId);
   // Gracefully handle cases where response body isn't available (e.g., test mocks)
   let body = '';
   try {
@@ -38,11 +47,14 @@ async function httpRequestToWorker(
  * Check if a port is in use by querying the health endpoint
  */
 export async function isPortInUse(port: number): Promise<boolean> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 5000); // 5s timeout
   try {
-    // Note: Removed AbortSignal.timeout to avoid Windows Bun cleanup issue (libuv assertion)
-    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: controller.signal });
+    clearTimeout(tid);
     return response.ok;
   } catch (error) {
+    clearTimeout(tid);
     // [ANTI-PATTERN IGNORED]: Health check polls every 500ms, logging would flood
     return false;
   }
